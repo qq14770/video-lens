@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<!--
+  Video Lens —— 视频内容提取工作台
+  ─────────────────────────────────────────────────────────────
+  · 单页、零框架、零运行时外链（hls.js 已本地化到 vendor/）
+  · 页面结构只有 4 个槽位：输入 → 播放器 → 标题栏 → 直链区
+  · 所有渲染数据来自后端白名单投影（title / 播放器 / 直链），
+    因此结构上不存在广告位、推荐位、评论区等冗余模块。
+  · DOM 约定：以 data-* 作为 JS 挂点，CSS 以 BEM 命名（.block__elem--mod）。
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <!-- viewport 禁缩放：保证窄屏下时间轴与按钮的可点面积 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="referrer" content="no-referrer" />
+  <title>Video Lens · 视频内容提取</title>
+
+  <!-- hls.js：为 HLS(m3u8) 流提供 MSE 播放能力（Safari 走原生，不需要它） -->
+  <script src="vendor/hls.min.js" defer></script>
+  <link rel="stylesheet" href="css/style.css" />
+  <script src="js/app.js" defer></script>
+  <!-- 批量下载与定时任务：独立模块，不参与单条解析的状态机 -->
+  <script src="js/panels.js" defer></script>
+</head>
+
+<body class="vl">
+  <!-- ============================ 顶部：唯一输入口 ============================ -->
+  <header class="vl__top">
+    <div class="vl__brand" title="只保留标题、播放器与直链">
+      <svg class="vl__brand-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 7h11a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z" />
+        <path d="m17 10 4-2v8l-4-2" />
+      </svg>
+      <div class="vl__brand-text">
+        <span class="vl__brand-name">Video Lens</span>
+        <span class="vl__brand-sub">标题 · 播放器 · 直链</span>
+      </div>
+    </div>
+
+    <form id="extract-form" class="vl-form" autocomplete="off">
+      <div class="vl-form__box">
+        <span class="vl-form__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 6 .4l3-3a4 4 0 1 0-5.7-5.7l-1.6 1.6"/><path d="M14 10a4 4 0 0 0-6-.4l-3 3a4 4 0 1 0 5.7 5.7l1.6-1.6"/></svg>
+        </span>
+        <input
+          id="url-input"
+          class="vl-form__input"
+          type="text"
+          inputmode="url"
+          spellcheck="false"
+          placeholder="粘贴视频链接（B站 / 抖音 / YouTube / X / 小红书…）"
+          aria-label="视频链接"
+          maxlength="2048"
+          required
+        />
+        <button type="button" id="paste-btn" class="vl-form__ghost" title="读取剪贴板">粘贴</button>
+        <button type="submit" id="submit-btn" class="vl-form__submit">提取</button>
+      </div>
+      <div class="vl-form__hint">
+        <span class="vl-form__hint-dot" aria-hidden="true"></span>
+        解析在你的机器上完成，页面只显示视频本身 —— 广告、推荐、评论、弹幕一律不加载。
+      </div>
+    </form>
+
+    <!-- 模式切换：单条解析 / 批量下载 / 定时任务。
+         三块各有自己的面板，互不干扰 —— 结果区始终只保留「标题+播放器+直链」四件套。 -->
+    <nav class="vl-tabs" id="mode-tabs" role="tablist" aria-label="工作模式">
+      <button type="button" class="vl-tab is-active" id="tab-single" role="tab"
+              aria-selected="true" data-mode="single">单条解析</button>
+      <button type="button" class="vl-tab" id="tab-batch" role="tab"
+              aria-selected="false" data-mode="batch">批量下载</button>
+      <button type="button" class="vl-tab" id="tab-schedule" role="tab"
+              aria-selected="false" data-mode="schedule">定时任务</button>
+    </nav>
+
+    <div class="vl__status" id="health" hidden>
+      <span class="vl__status-led" data-ok="1"></span><span id="health-text">服务正常</span>
+    </div>
+  </header>
+
+  <main class="vl__main">
+    <!-- ============================ 空态 ============================ -->
+    <section id="empty-state" class="vl-empty">
+      <div class="vl-empty__ring" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5-11-6.5Z"/></svg>
+      </div>
+      <h1 class="vl-empty__title">粘贴链接，只留下视频</h1>
+      <p class="vl-empty__desc">支持主流视频站点；解析后此处只显示标题、播放器与可复制的视频直链。</p>
+      <ul class="vl-empty__sites" id="site-tags" aria-label="支持的站点"></ul>
+    </section>
+
+    <!-- ============================ 加载态 ============================ -->
+    <section id="loading-state" class="vl-loading" hidden aria-live="polite">
+      <div class="vl-loading__panel">
+        <div class="vl-loading__bar"><i id="loading-bar-fill"></i></div>
+        <p class="vl-loading__step" id="loading-step">准备解析…</p>
+        <p class="vl-loading__url" id="loading-url"></p>
+        <button type="button" id="cancel-btn" class="vl-btn vl-btn--ghost">取消</button>
+      </div>
+    </section>
+
+    <!-- ============================ 错误态 ============================ -->
+    <section id="error-state" class="vl-error" hidden role="alert">
+      <div class="vl-error__panel">
+        <div class="vl-error__code" id="error-code">extract_failed</div>
+        <p class="vl-error__msg" id="error-msg"></p>
+        <div class="vl-error__tips" id="error-tips"></div>
+        <div class="vl-error__acts">
+          <button type="button" id="retry-btn" class="vl-btn vl-btn--primary">重试</button>
+          <button type="button" id="reset-btn" class="vl-btn vl-btn--ghost">返回</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ 结果态：仅 4 块内容 ============================ -->
+    <article id="result-state" class="vl-result" hidden>
+
+      <!-- ① 视频标题（唯一文本信息） -->
+      <h2 class="vl-result__title" id="video-title" title="双击复制标题"></h2>
+
+      <!-- ② 播放器 -->
+      <div class="vl-player" id="player-shell">
+        <video
+          id="video"
+          class="vl-player__video"
+          controls
+          playsinline
+          preload="metadata"
+          crossorigin="anonymous"
+        ></video>
+
+        <!-- 清晰度切换（浮于画面右上角，不额外占高度） -->
+        <div class="vl-player__quality" id="quality-menu" hidden>
+          <button type="button" class="vl-player__quality-btn" id="quality-btn"
+                  aria-haspopup="true" aria-expanded="false">
+            <span id="quality-cur">自动</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <ul class="vl-player__quality-list" id="quality-list" role="menu"></ul>
+        </div>
+
+        <!-- 封面遮罩：首次播放前显示，避免黑屏 + 减小首屏流量 -->
+        <div class="vl-player__poster" id="poster-mask" hidden>
+          <img id="poster-img" alt="" />
+          <button type="button" class="vl-player__play" id="big-play" aria-label="播放">
+            <svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5-11-6.5Z"/></svg>
+          </button>
+        </div>
+
+        <p class="vl-player__note" id="player-note" hidden></p>
+      </div>
+
+      <!-- ③ 元信息行：来源 + 时长（保持单行，无多余字段） -->
+      <div class="vl-result__meta">
+        <span class="vl-result__from" id="video-from">
+          <i class="vl-result__dot" id="from-dot"></i><span id="from-name"></span>
+        </span>
+        <span class="vl-result__time" id="video-duration"></span>
+        <span class="vl-result__badge" id="ad-badge" title="服务器端已过滤贴片广告与冗余字段">已过滤广告与冗余</span>
+      </div>
+
+      <!-- ④ 视频直链区 -->
+      <section class="vl-links" aria-labelledby="links-head">
+        <div class="vl-links__head">
+          <h3 class="vl-links__title" id="links-head">视频直链</h3>
+          <div class="vl-links__tools">
+            <button type="button" class="vl-btn vl-btn--mini" id="copy-all-btn">复制全部</button>
+            <button type="button" class="vl-btn vl-btn--mini" id="export-btn">导出 JSON</button>
+          </div>
+        </div>
+        <p class="vl-links__warn">直链多带时效与防盗链校验，请在提取后尽快使用；<b>播放</b>走本页代理，<b>复制</b>得到的是原始直链。</p>
+        <ul class="vl-links__list" id="links-list"></ul>
+      </section>
+    </article>
+
+    <!-- ============================ 批量下载视图 ============================ -->
+    <section id="batch-state" class="vl-panel" hidden aria-labelledby="batch-head">
+      <h2 class="vl-panel__title" id="batch-head">批量下载</h2>
+      <p class="vl-panel__desc">
+        一次粘贴多条链接（每行一条，或直接粘一大段含链接的文本）。
+        逐条解析、HLS 自动合并，全部结束后打包成一个 <b>zip</b> 下载 — 浏览器只会弹一次保存框。
+      </p>
+
+      <div class="vl-panel__form">
+        <textarea id="batch-input" class="vl-panel__textarea" spellcheck="false"
+                  placeholder="每行一条链接，例如：&#10;https://www.bilibili.com/video/BV1xx411c7mD&#10;https://51cg1.com/archives/277506/&#10;https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"></textarea>
+        <div class="vl-panel__row">
+          <input id="batch-label" class="vl-panel__text" type="text" maxlength="60"
+                 placeholder="批次名（用作 zip 文件名，可留空）" />
+          <span class="vl-panel__count" id="batch-count">识别到 0 条</span>
+          <button type="button" class="vl-btn vl-btn--primary" id="batch-submit">开始批量下载</button>
+        </div>
+      </div>
+
+      <!-- 当前批次进度 -->
+      <div class="vl-progress" id="batch-progress" hidden>
+        <div class="vl-progress__head">
+          <span class="vl-progress__label" id="batch-progress-label">处理中…</span>
+          <span class="vl-progress__pct" id="batch-progress-pct">0%</span>
+        </div>
+        <div class="vl-progress__bar"><i id="batch-progress-fill"></i></div>
+      </div>
+
+      <ul class="vl-items" id="batch-items"></ul>
+
+      <div class="vl-panel__acts" id="batch-acts" hidden>
+        <button type="button" class="vl-btn vl-btn--primary" id="batch-download">下载 zip</button>
+        <button type="button" class="vl-btn vl-btn--ghost" id="batch-clear">清空</button>
+      </div>
+
+      <!-- 历史批次 -->
+      <details class="vl-hist" id="batch-hist-wrap" hidden>
+        <summary class="vl-hist__sum">历史批次</summary>
+        <ul class="vl-hist__list" id="batch-hist"></ul>
+      </details>
+    </section>
+
+    <!-- ============================ 定时任务视图 ============================ -->
+    <section id="schedule-state" class="vl-panel" hidden aria-labelledby="schedule-head">
+      <h2 class="vl-panel__title" id="schedule-head">定时任务</h2>
+      <p class="vl-panel__desc">
+        设定时间让服务自动重新解析并合并这些链接。计划保存在服务端
+        （<code>backend/state.json</code>），<b>重启不丢</b>，关掉页面也照常执行。
+      </p>
+
+      <div class="vl-panel__form">
+        <textarea id="schedule-input" class="vl-panel__textarea" spellcheck="false"
+                  placeholder="要定时处理的链接，每行一条"></textarea>
+        <div class="vl-panel__row">
+          <input id="schedule-label" class="vl-panel__text" type="text" maxlength="60"
+                 placeholder="备注名（可留空）" />
+          <select id="schedule-mode" class="vl-panel__select">
+            <option value="daily">每天定时</option>
+            <option value="interval">每隔一段时间</option>
+          </select>
+          <input id="schedule-at" class="vl-panel__time" type="time" value="22:00" />
+          <input id="schedule-every" class="vl-panel__num" type="number" min="1" max="10080"
+                 value="60" hidden />
+          <span class="vl-panel__unit" id="schedule-unit" hidden>分钟</span>
+          <button type="button" class="vl-btn vl-btn--primary" id="schedule-add">添加计划</button>
+        </div>
+      </div>
+
+      <ul class="vl-scheds" id="schedule-list"></ul>
+      <p class="vl-panel__empty" id="schedule-empty">还没有定时计划。</p>
+    </section>
+  </main>
+
+  <!-- ============================ 页脚（单行极简） ============================ -->
+  <footer class="vl__foot">
+    <span>仅供个人学习与备份自有内容 · 请遵守各站点服务条款与版权规定</span>
+    <span id="foot-ver"></span>
+  </footer>
+
+  <!-- 轻提示 -->
+  <div class="vl-toast" id="toast" role="status" aria-live="polite"></div>
+
+  <!-- 清晰度模板：克隆后填充，避免 JS 拼 HTML（降低 XSS 面） -->
+  <template id="tpl-link-item">
+    <li class="vl-link" data-idx="">
+      <div class="vl-link__main">
+        <span class="vl-link__label"></span>
+        <span class="vl-link__tags"></span>
+      </div>
+      <div class="vl-link__row">
+        <code class="vl-link__url" title=""></code>
+        <div class="vl-link__acts">
+          <button type="button" class="vl-btn vl-btn--mini vl-btn--play">播放</button>
+          <button type="button" class="vl-btn vl-btn--mini vl-btn--copy">复制链接</button>
+          <a class="vl-btn vl-btn--mini vl-btn--open" target="_blank" rel="noopener noreferrer" download>打开</a>
+        </div>
+      </div>
+    </li>
+  </template>
+
+  <template id="tpl-quality-item">
+    <li class="vl-quality-item" role="menuitem" data-idx="">
+      <span class="vl-quality-item__label"></span>
+      <span class="vl-quality-item__sub"></span>
+    </li>
+  </template>
+
+  <!-- 批量条目：一条链接一行，显示标题/状态/体积/原因 -->
+  <template id="tpl-batch-item">
+    <li class="vl-item" data-status="">
+      <span class="vl-item__dot" aria-hidden="true"></span>
+      <div class="vl-item__main">
+        <span class="vl-item__title"></span>
+        <span class="vl-item__url"></span>
+        <span class="vl-item__err"></span>
+      </div>
+      <span class="vl-item__meta"></span>
+    </li>
+  </template>
+
+  <!-- 定时计划行 -->
+  <template id="tpl-schedule">
+    <li class="vl-sched" data-enabled="">
+      <div class="vl-sched__main">
+        <span class="vl-sched__label"></span>
+        <span class="vl-sched__when"></span>
+        <span class="vl-sched__urls"></span>
+        <span class="vl-sched__last"></span>
+      </div>
+      <div class="vl-sched__acts">
+        <button type="button" class="vl-btn vl-btn--mini vl-sched__run">立即执行</button>
+        <button type="button" class="vl-btn vl-btn--mini vl-sched__toggle"></button>
+        <button type="button" class="vl-btn vl-btn--mini vl-sched__del">删除</button>
+      </div>
+    </li>
+  </template>
+</body>
+</html>

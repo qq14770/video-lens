@@ -1,0 +1,12 @@
+# ===== 视频内容提取 Web UI · 后端依赖 =====
+# 安装：python -m pip install -r backend/requirements.txt
+
+fastapi>=0.110,<1.0        # HTTP 框架（自带 OpenAPI 文档，便于前后端联调）
+uvicorn[standard]>=0.27    # ASGI 服务器（standard 附带 httptools/uvloop，吞吐更好）
+pydantic>=2.6,<3.0         # 出参/入参模型（前端只拿到白名单投影后的字段）
+yt-dlp>=2024.12.1          # 视频解析核心：支持 YouTube/Bilibili/抖音/Twitter/Vimeo 等上千站点
+httpx>=0.27                # 异步 HTTP 客户端：用于「直链反向代理」，解决 CORS 与 Referer 防盗链
+
+# ---- 可选增强（默认注释，按需开启） ----
+# curl_cffi>=0.7           # 开启后 config.VX_IMPERSONATE=chrome，可绕过部分站点的 TLS 指纹风控
+# brotli>=1.1              # 支持 br 压缩的 m3u8/清单响应

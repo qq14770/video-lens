@@ -1,0 +1,1071 @@
+/* ==========================================================================
+   Video Lens — 界面样式
+   --------------------------------------------------------------------------
+   设计目标：把视觉注意力全部留给「视频」。四条硬性原则：
+
+     1. 无侧栏、无卡片瀑布、无页脚导航：整页只有 输入 / 播放器 / 标题 / 直链 四段。
+     2. 深色低饱和画布（#0d0f12），让 16:9 画面成为页面上唯一的亮面与彩色焦点。
+     3. 只有一个强调色（brand accent），用于主按钮与当前状态；其余全部走中性灰阶。
+     4. 文本层级靠字号与灰阶区分，不使用分隔线、阴影堆叠、背景色块来划分区域。
+
+   命名：BEM（.block__element--modifier）。工具类以 .is-* 表示状态。
+   断点：≥1080 三栏可用宽度；≤880 单列；≤520 输入框纵向排布。
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Design Tokens
+   -------------------------------------------------------------------------- */
+:root {
+  /* 画布与表面 */
+  --c-bg:            #0d0f12;   /* 页面底色 */
+  --c-bg-soft:       #12151a;   /* 次级面（直链行、加载面板） */
+  --c-bg-input:      #171b21;   /* 输入框/按钮底 */
+  --c-line:          #232932;   /* 1px 描边（全站唯一的"线"） */
+  --c-line-strong:   #323a46;   /* hover 描边 */
+
+  /* 文本 */
+  --c-text:          #e8ebf0;   /* 主文本 */
+  --c-text-2:        #9aa4b2;   /* 次文本 */
+  --c-text-3:        #616b78;   /* 占位/说明 */
+
+  /* 品牌与语义色 */
+  --c-accent:        #4c8dff;   /* 唯一强调色 */
+  --c-accent-dim:    rgba(76, 141, 255, .14);
+  --c-ok:            #35c47f;
+  --c-warn:          #e8a13a;
+  --c-err:           #f2605c;
+
+  /* 尺寸 */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-pill: 999px;
+  --sp: 16px;
+  --top-h: 68px;
+  --max-w: 980px;   /* 正文最大宽度：接近 16:9 视频宽度，视觉重心不外溢 */
+
+  /* 动效 */
+  --ease: cubic-bezier(.22, .61, .36, 1);
+  --t-fast: 120ms;
+  --t-base: 220ms;
+
+  /* 字体：优先中文系统字体，等宽用于直链 */
+  --ff: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+        "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei",
+        "Source Han Sans SC", Roboto, Helvetica, Arial, sans-serif;
+  --ff-mono: "Cascadia Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+/* 尊重系统的"减少动态效果" */
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}
+
+/* --------------------------------------------------------------------------
+   2. Reset
+   -------------------------------------------------------------------------- */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { margin: 0; padding: 0; }
+
+body {
+  min-height: 100dvh;
+  background: var(--c-bg);
+  color: var(--c-text);
+  font-family: var(--ff);
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* 极轻的顶部光晕：打破纯平的深色块，但不制造任何可辨识的"装饰元素" */
+  background-image:
+    radial-gradient(120% 60% at 50% -10%, rgba(76, 141, 255, .07), transparent 60%);
+  background-repeat: no-repeat;
+}
+
+h1, h2, h3, p, ul, figure { margin: 0; padding: 0; }
+ul { list-style: none; }
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; border: 0; background: none; }
+svg { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 1.7;
+      stroke-linecap: round; stroke-linejoin: round; }
+svg[aria-hidden="true"] { flex: none; }
+
+/* 键盘可达性：只给键盘用户显示焦点环 */
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; border-radius: 4px; }
+
+::selection { background: var(--c-accent-dim); color: var(--c-text); }
+
+/* hidden 属性必须"绝对隐藏"：本文件大量规则写了 display:flex/grid，
+   作者样式会盖过 UA 的 [hidden]{display:none}，导致四态互斥失效、
+   错误面板与结果同屏。用 !important 在全局兜底，一处修复所有 hidden 目标。 */
+[hidden] { display: none !important; }
+
+/* 全局滚动条：细、低对比 */
+* { scrollbar-width: thin; scrollbar-color: var(--c-line-strong) transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: var(--c-line-strong); border-radius: var(--r-pill); }
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* 无障碍：仅供读屏使用 */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+
+/* --------------------------------------------------------------------------
+   3. 页面骨架：顶栏 / 主体 / 页脚
+   -------------------------------------------------------------------------- */
+.vl {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+/* ---- 顶栏：整页唯一的操作区 ---- */
+.vl__top {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-height: var(--top-h);
+  padding: 12px clamp(16px, 4vw, 32px);
+  background: rgba(13, 15, 18, .82);
+  backdrop-filter: saturate(140%) blur(14px);
+  -webkit-backdrop-filter: saturate(140%) blur(14px);
+  border-bottom: 1px solid var(--c-line);
+  flex-wrap: wrap;
+}
+
+.vl__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+
+.vl__brand-icon {
+  width: 30px; height: 30px;
+  padding: 5px;
+  border-radius: var(--r-sm);
+  background: var(--c-accent-dim);
+  color: var(--c-accent);
+  stroke-width: 1.6;
+}
+
+.vl__brand-text { display: flex; flex-direction: column; line-height: 1.25; }
+.vl__brand-name { font-size: 15px; font-weight: 650; letter-spacing: .2px; }
+.vl__brand-sub  { font-size: 11.5px; color: var(--c-text-3); letter-spacing: .5px; }
+
+/* ---- 服务健康指示灯（顶栏右侧，极小） ---- */
+.vl__status {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--c-text-3);
+  flex: none;
+}
+.vl__status-led {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--c-text-3);
+  box-shadow: 0 0 0 3px rgba(255,255,255,.03);
+}
+.vl__status-led[data-ok="1"] { background: var(--c-ok); }
+.vl__status-led[data-ok="0"] { background: var(--c-err); }
+
+/* ---- 主体 ---- */
+.vl__main {
+  flex: 1;
+  width: 100%;
+  max-width: var(--max-w);
+  margin: 0 auto;
+  padding: clamp(20px, 4vw, 40px) clamp(16px, 4vw, 32px) 40px;
+}
+
+/* ---- 页脚：一行灰阶小字 ---- */
+.vl__foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 18px clamp(16px, 4vw, 32px);
+  border-top: 1px solid var(--c-line);
+  font-size: 11.5px;
+  color: var(--c-text-3);
+}
+
+/* --------------------------------------------------------------------------
+   4. 提取表单
+   -------------------------------------------------------------------------- */
+.vl-form {
+  flex: 1 1 380px;
+  min-width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vl-form__box {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  padding: 5px 5px 5px 12px;
+  background: var(--c-bg-input);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-pill);
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+.vl-form__box:focus-within {
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 3px var(--c-accent-dim);
+}
+
+.vl-form__icon {
+  display: flex; align-items: center;
+  color: var(--c-text-3);
+  font-size: 17px;
+}
+.vl-form__icon svg { width: 17px; height: 17px; }
+
+.vl-form__input {
+  flex: 1;
+  min-width: 0;               /* 关键：允许长 URL 在 flex 容器里收缩 */
+  padding: 9px 4px;
+  background: none;
+  border: 0;
+  font-size: 14px;
+  font-family: var(--ff-mono);
+}
+.vl-form__input::placeholder { font-family: var(--ff); color: var(--c-text-3); }
+
+/* 圆形按钮组 */
+.vl-form__ghost,
+.vl-form__submit {
+  flex: none;
+  padding: 0 16px;
+  border-radius: var(--r-pill);
+  font-size: 13.5px;
+  font-weight: 550;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease),
+              transform var(--t-fast) var(--ease);
+}
+.vl-form__ghost {
+  color: var(--c-text-2);
+  background: rgba(255, 255, 255, .04);
+}
+.vl-form__ghost:hover { color: var(--c-text); background: rgba(255, 255, 255, .09); }
+
+.vl-form__submit {
+  color: #fff;
+  background: var(--c-accent);
+  min-width: 74px;
+}
+.vl-form__submit:hover { background: #5f9bff; }
+.vl-form__submit:active { transform: translateY(1px); }
+.vl-form__submit[disabled] { opacity: .5; cursor: progress; }
+
+.vl-form__hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 14px;
+  font-size: 11.5px;
+  color: var(--c-text-3);
+}
+.vl-form__hint-dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--c-ok);
+  flex: none;
+}
+
+/* --------------------------------------------------------------------------
+   5. 通用按钮
+   -------------------------------------------------------------------------- */
+.vl-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border-radius: var(--r-pill);
+  font-size: 13.5px;
+  font-weight: 550;
+  border: 1px solid transparent;
+  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease),
+              color var(--t-fast) var(--ease);
+}
+.vl-btn--primary { background: var(--c-accent); color: #fff; }
+.vl-btn--primary:hover { background: #5f9bff; }
+.vl-btn--ghost { border-color: var(--c-line); color: var(--c-text-2); }
+.vl-btn--ghost:hover { border-color: var(--c-line-strong); color: var(--c-text); }
+
+.vl-btn--mini {
+  padding: 5px 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  border-radius: var(--r-sm);
+  border-color: var(--c-line);
+  color: var(--c-text-2);
+  background: var(--c-bg-input);
+}
+.vl-btn--mini:hover { border-color: var(--c-accent); color: var(--c-text); background: var(--c-accent-dim); }
+
+/* 「下载」按钮的合并态：文案换成「合并中」时给出进行中的视觉反馈（不新增任何面板）。
+   data-mode 由 app.js 切换：idle → busy → ready */
+.vl-btn--open[data-mode="busy"] {
+  color: var(--c-warn);
+  border-color: var(--c-warn);
+  background: transparent;
+  cursor: progress;
+  pointer-events: none;
+}
+.vl-btn--open[data-mode="ready"] {
+  color: var(--c-ok);
+  border-color: var(--c-ok);
+}
+
+/* --------------------------------------------------------------------------
+   5b. 合并进度条（挂在直链行底部，占满整行，不新增面板）
+   -------------------------------------------------------------------------- */
+.vl-dlprog {
+  position: relative;
+  flex-basis: 100%;
+  height: 16px;
+  margin-top: 8px;
+  border-radius: 3px;
+  background: var(--c-bg-input);
+  overflow: hidden;
+}
+
+.vl-dlprog__fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--c-warn);
+  opacity: .38;
+  transition: width .4s ease;
+}
+
+/* 拿不到可靠分母时的不确定态：来回扫动，明确表示"进度未知"而不是"卡住了" */
+.vl-dlprog[data-indeterminate="1"] .vl-dlprog__fill {
+  width: 32% !important;
+  animation: vl-dlprog-scan 1.4s ease-in-out infinite;
+}
+@keyframes vl-dlprog-scan {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(340%); }
+}
+
+.vl-dlprog__text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-text-2);
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  letter-spacing: .2px;
+  white-space: nowrap;
+}
+
+/* 预估值标记：虚线下划线暗示"这是估算"，与精确体积区分 */
+.vl-mini-tag--est { border-style: dashed; color: var(--c-text-3); }
+
+/* --------------------------------------------------------------------------
+   6. 空态
+   -------------------------------------------------------------------------- */
+.vl-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: clamp(40px, 12vh, 110px) 20px 30px;
+  text-align: center;
+}
+
+.vl-empty__ring {
+  width: 74px; height: 74px;
+  margin-bottom: 8px;
+  border-radius: 50%;
+  border: 1px solid var(--c-line);
+  display: grid;
+  place-items: center;
+  color: var(--c-accent);
+  font-size: 30px;
+  background: radial-gradient(circle at 50% 40%, var(--c-accent-dim), transparent 70%);
+}
+.vl-empty__ring svg { width: 30px; height: 30px; fill: currentColor; stroke: none; }
+
+.vl-empty__title { font-size: 20px; font-weight: 620; letter-spacing: .3px; }
+.vl-empty__desc  { max-width: 44ch; font-size: 13.5px; color: var(--c-text-2); }
+
+/* 支持站点标签：纯文本 pill，不用真实站点 logo（避免引入第三方资源/追踪像素） */
+.vl-empty__sites {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  justify-content: center;
+  margin-top: 14px;
+  max-width: 560px;
+}
+.vl-tag {
+  padding: 4px 11px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--c-line);
+  font-size: 12px;
+  color: var(--c-text-3);
+  background: var(--c-bg-soft);
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.vl-tag:hover { color: var(--c-text-2); border-color: var(--c-line-strong); }
+
+/* --------------------------------------------------------------------------
+   7. 加载态
+   -------------------------------------------------------------------------- */
+.vl-loading {
+  display: flex;
+  justify-content: center;
+  padding-top: clamp(40px, 12vh, 100px);
+}
+.vl-loading__panel {
+  width: min(460px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+.vl-loading__bar {
+  width: 100%;
+  height: 3px;
+  border-radius: var(--r-pill);
+  background: var(--c-line);
+  overflow: hidden;
+}
+.vl-loading__bar i {
+  display: block;
+  height: 100%;
+  width: 8%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--c-accent), #7db4ff);
+  transition: width var(--t-base) var(--ease);
+}
+.vl-loading__step { font-size: 14px; color: var(--c-text); }
+.vl-loading__url {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--ff-mono);
+  font-size: 11.5px;
+  color: var(--c-text-3);
+}
+
+/* --------------------------------------------------------------------------
+   8. 错误态
+   -------------------------------------------------------------------------- */
+.vl-error { display: flex; justify-content: center; padding-top: clamp(30px, 10vh, 90px); }
+.vl-error__panel {
+  width: min(520px, 100%);
+  padding: 22px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-lg);
+  background: var(--c-bg-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.vl-error__code {
+  align-self: flex-start;
+  padding: 2px 9px;
+  border-radius: var(--r-sm);
+  background: rgba(242, 96, 92, .12);
+  color: var(--c-err);
+  font-family: var(--ff-mono);
+  font-size: 11.5px;
+}
+.vl-error__msg { font-size: 15px; }
+.vl-error__tips { font-size: 12.5px; color: var(--c-text-2); }
+.vl-error__tips ul { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.vl-error__tips li { padding-left: 14px; position: relative; }
+.vl-error__tips li::before {
+  content: ""; position: absolute; left: 2px; top: .66em;
+  width: 4px; height: 4px; border-radius: 50%; background: var(--c-text-3);
+}
+.vl-error__acts { display: flex; gap: 10px; margin-top: 4px; }
+
+/* --------------------------------------------------------------------------
+   9. 结果态
+   -------------------------------------------------------------------------- */
+.vl-result {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: rise var(--t-base) var(--ease) both;
+}
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ① 标题 —— 页面里唯一的大号文本 */
+.vl-result__title {
+  font-size: clamp(17px, 2.5vw, 21px);
+  font-weight: 620;
+  line-height: 1.42;
+  letter-spacing: .2px;
+  /* 两行封顶，长标题不撑破版面 */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  cursor: copy;
+}
+
+/* ② 播放器 */
+.vl-player {
+  position: relative;
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: #000;
+  border: 1px solid var(--c-line);
+  /* 16:9：视频是页面唯一的"亮面" */
+  aspect-ratio: 16 / 9;
+}
+.vl-player__video {
+  width: 100%;
+  height: 100%;
+  display: block;
+  background: #000;
+  object-fit: contain;
+}
+
+/* 竖屏短视频：限制最大宽度，避免左右留白过大；同时保持居中 */
+.vl-player.is-portrait .vl-player__video { margin: 0 auto; width: auto; height: 100%; }
+.vl-player.is-portrait { background: #05070a; }
+
+/* 清晰度浮层（右上角，半透明，不抢视线） */
+.vl-player__quality {
+  position: absolute;
+  top: 10px; right: 10px;
+  z-index: 5;
+  font-size: 12.5px;
+}
+.vl-player.is-fullscreen .vl-player__quality { top: max(10px, env(safe-area-inset-top)); }
+
+.vl-player__quality-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  border-radius: var(--r-pill);
+  background: rgba(10, 12, 15, .72);
+  color: #fff;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 255, 255, .16);
+  transition: background var(--t-fast) var(--ease);
+}
+.vl-player__quality-btn:hover { background: rgba(10, 12, 15, .9); }
+.vl-player__quality-btn svg { width: 14px; height: 14px; transition: transform var(--t-fast) var(--ease); }
+.vl-player__quality.is-open .vl-player__quality-btn svg { transform: rotate(180deg); }
+
+.vl-player__quality-list {
+  position: absolute;
+  top: calc(100% + 6px); right: 0;
+  min-width: 190px;
+  padding: 5px;
+  border-radius: var(--r-md);
+  background: rgba(16, 19, 24, .96);
+  border: 1px solid var(--c-line-strong);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .5);
+  opacity: 0;
+  transform: translateY(-4px) scale(.98);
+  transform-origin: top right;
+  pointer-events: none;
+  transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+}
+.vl-player__quality.is-open .vl-player__quality-list {
+  opacity: 1; transform: none; pointer-events: auto;
+}
+.vl-quality-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.vl-quality-item:hover { background: rgba(255, 255, 255, .07); }
+.vl-quality-item.is-active { color: var(--c-accent); }
+.vl-quality-item.is-active .vl-quality-item__label::after { content: " ·当前"; font-size: 11px; opacity: .8; }
+.vl-quality-item__label { font-weight: 550; }
+.vl-quality-item__sub { font-family: var(--ff-mono); font-size: 11px; color: var(--c-text-3); }
+
+/* 封面遮罩 */
+.vl-player__poster {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  background: #05070a;
+  transition: opacity var(--t-base) var(--ease), visibility var(--t-base);
+}
+.vl-player__poster img {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: contain;
+  opacity: .68;
+  filter: saturate(.9);
+}
+.vl-player__poster.is-hidden { opacity: 0; visibility: hidden; }
+
+.vl-player__play {
+  position: relative;
+  width: 66px; height: 66px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(20, 23, 28, .62);
+  border: 1px solid rgba(255, 255, 255, .28);
+  color: #fff;
+  font-size: 28px;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  transition: transform var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.vl-player__play:hover { transform: scale(1.06); background: var(--c-accent); }
+.vl-player__play svg { width: 28px; height: 28px; fill: currentColor; stroke: none; margin-left: 3px; }
+
+.vl-player__note {
+  position: absolute;
+  left: 12px; bottom: 12px;
+  z-index: 6;
+  max-width: calc(100% - 24px);
+  padding: 5px 11px;
+  border-radius: var(--r-sm);
+  background: rgba(10, 12, 15, .8);
+  color: #fff;
+  font-size: 12px;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* ③ 元信息行 */
+.vl-result__meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  color: var(--c-text-2);
+}
+.vl-result__from { display: inline-flex; align-items: center; gap: 6px; }
+.vl-result__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c-text-3); }
+.vl-result__time { font-family: var(--ff-mono); color: var(--c-text-3); }
+.vl-result__badge {
+  margin-left: auto;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--c-line);
+  color: var(--c-text-3);
+  font-size: 11.5px;
+  background: var(--c-bg-soft);
+}
+
+/* ④ 直链区 */
+.vl-links {
+  margin-top: 6px;
+  padding: 16px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-lg);
+  background: var(--c-bg-soft);
+}
+.vl-links__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.vl-links__title { font-size: 14px; font-weight: 620; letter-spacing: .3px; }
+.vl-links__tools { margin-left: auto; display: flex; gap: 8px; }
+.vl-links__warn {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--c-text-3);
+}
+.vl-links__warn b { color: var(--c-text-2); font-weight: 600; }
+
+.vl-links__list {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vl-link {
+  padding: 10px 12px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-md);
+  background: var(--c-bg);
+  transition: border-color var(--t-fast) var(--ease);
+}
+.vl-link:hover { border-color: var(--c-line-strong); }
+.vl-link.is-active { border-color: var(--c-accent); background: var(--c-accent-dim); }
+
+.vl-link__main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.vl-link__label { font-size: 13.5px; font-weight: 600; }
+.vl-link__tags { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.vl-mini-tag {
+  padding: 1px 7px;
+  border-radius: var(--r-sm);
+  background: rgba(255, 255, 255, .05);
+  color: var(--c-text-3);
+  font-family: var(--ff-mono);
+  font-size: 11px;
+}
+.vl-mini-tag--hls { color: var(--c-warn); background: rgba(232, 161, 58, .12); }
+.vl-mini-tag--mp4 { color: var(--c-ok); background: rgba(53, 196, 127, .12); }
+
+.vl-link__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+.vl-link__url {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 9px;
+  border-radius: var(--r-sm);
+  background: var(--c-bg-input);
+  border: 1px solid transparent;
+  font-family: var(--ff-mono);
+  font-size: 11.5px;
+  color: var(--c-text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: copy;
+}
+.vl-link__url:hover { border-color: var(--c-line-strong); color: var(--c-text); }
+.vl-link__url.is-copied { color: var(--c-ok); border-color: rgba(53, 196, 127, .4); }
+
+.vl-link__acts { display: flex; gap: 6px; flex: none; }
+
+/* --------------------------------------------------------------------------
+   10. Toast
+   -------------------------------------------------------------------------- */
+.vl-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  z-index: 100;
+  transform: translate(-50%, 20px);
+  padding: 9px 18px;
+  border-radius: var(--r-pill);
+  background: rgba(23, 27, 33, .96);
+  border: 1px solid var(--c-line-strong);
+  color: var(--c-text);
+  font-size: 13px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--t-base) var(--ease), transform var(--t-base) var(--ease);
+  max-width: min(88vw, 560px);
+  text-align: center;
+}
+.vl-toast.is-show { opacity: 1; transform: translate(-50%, 0); }
+.vl-toast[data-type="err"]  { border-color: rgba(242, 96, 92, .55); }
+.vl-toast[data-type="warn"] { border-color: rgba(232, 161, 58, .55); }
+
+/* --------------------------------------------------------------------------
+   11. 响应式
+   -------------------------------------------------------------------------- */
+@media (max-width: 880px) {
+  :root { --top-h: auto; }
+  .vl__top { position: sticky; gap: 12px; }
+  .vl__status { order: 3; margin-left: 0; }
+  .vl-form { flex-basis: 100%; order: 2; }
+  .vl-result__badge { margin-left: 0; }
+}
+
+@media (max-width: 520px) {
+  body { font-size: 14.5px; }
+  .vl__brand-text { display: none; }        /* 窄屏只留图标，把宽度让给输入框 */
+  .vl-form__box { flex-wrap: wrap; padding: 8px; border-radius: var(--r-md); gap: 8px; }
+  .vl-form__input { flex: 1 1 100%; order: 1; padding: 6px 4px; }
+  .vl-form__submit { flex: 1; order: 2; padding: 9px 0; }
+  .vl-form__ghost { order: 3; }
+  .vl-form__hint { padding-left: 4px; }
+  .vl-links__tools { width: 100%; }
+  .vl-link__row { flex-wrap: wrap; }
+  .vl-link__url { flex-basis: 100%; }
+  .vl-link__acts { width: 100%; justify-content: flex-end; }
+  .vl-toast { bottom: 16px; }
+}
+
+/* --------------------------------------------------------------------------
+   12. 模式切换（单条解析 / 批量下载 / 定时任务）
+   -------------------------------------------------------------------------- */
+.vl-tabs {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  padding: 3px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-sm);
+  background: var(--c-bg-soft);
+}
+
+.vl-tab {
+  padding: 6px 13px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--c-text-2);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s, color .15s;
+}
+.vl-tab:hover { color: var(--c-text); }
+.vl-tab.is-active { background: var(--c-accent-dim); color: var(--c-accent); font-weight: 600; }
+
+/* --------------------------------------------------------------------------
+   13. 批量 / 定时的通用面板
+   -------------------------------------------------------------------------- */
+.vl-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 4px 0 40px;
+}
+
+.vl-panel__title { margin: 0; font-size: 19px; font-weight: 650; letter-spacing: .3px; }
+
+.vl-panel__desc { margin: 0; color: var(--c-text-2); font-size: 13.5px; line-height: 1.75; }
+.vl-panel__desc b { color: var(--c-text); font-weight: 600; }
+.vl-panel__desc code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--c-bg-input);
+  font-family: var(--ff-mono);
+  font-size: 12.5px;
+  color: var(--c-text-2);
+}
+
+.vl-panel__form { display: flex; flex-direction: column; gap: 10px; }
+
+.vl-panel__textarea {
+  width: 100%;
+  min-height: 132px;
+  padding: 12px 14px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-md);
+  background: var(--c-bg-input);
+  color: var(--c-text);
+  font-family: var(--ff-mono);
+  font-size: 12.5px;
+  line-height: 1.85;
+  resize: vertical;
+  transition: border-color .15s;
+}
+.vl-panel__textarea:focus { outline: none; border-color: var(--c-accent); }
+.vl-panel__textarea::placeholder { color: var(--c-text-3); }
+
+.vl-panel__row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+.vl-panel__text,
+.vl-panel__select,
+.vl-panel__time,
+.vl-panel__num {
+  padding: 8px 11px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-sm);
+  background: var(--c-bg-input);
+  color: var(--c-text);
+  font-size: 13px;
+  font-family: inherit;
+}
+.vl-panel__text { flex: 1 1 200px; min-width: 140px; }
+.vl-panel__time { width: 118px; }
+.vl-panel__num { width: 88px; }
+.vl-panel__select { cursor: pointer; }
+.vl-panel__text:focus, .vl-panel__select:focus,
+.vl-panel__time:focus, .vl-panel__num:focus { outline: none; border-color: var(--c-accent); }
+
+.vl-panel__count { color: var(--c-text-3); font-size: 12.5px; margin-left: auto; }
+.vl-panel__unit { color: var(--c-text-3); font-size: 13px; }
+
+.vl-panel__acts { display: flex; gap: 10px; }
+.vl-panel__empty { margin: 0; color: var(--c-text-3); font-size: 13px; }
+
+/* 进度条 */
+.vl-progress { display: flex; flex-direction: column; gap: 8px; }
+.vl-progress__head { display: flex; justify-content: space-between; font-size: 13px; }
+.vl-progress__label { color: var(--c-text-2); }
+.vl-progress__pct { color: var(--c-accent); font-family: var(--ff-mono); }
+.vl-progress__bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--c-bg-input);
+  overflow: hidden;
+}
+.vl-progress__bar > i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 2px;
+  background: var(--c-accent);
+  transition: width .35s ease;
+}
+
+/* 条目列表（批量结果） */
+.vl-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+
+.vl-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 13px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-sm);
+  background: var(--c-bg-soft);
+}
+.vl-item__dot {
+  flex: none;
+  width: 7px; height: 7px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--c-text-3);
+}
+.vl-item[data-status="running"] .vl-item__dot { background: var(--c-warn); animation: vl-pulse 1.1s ease-in-out infinite; }
+.vl-item[data-status="done"]    .vl-item__dot { background: var(--c-ok); }
+.vl-item[data-status="failed"]  .vl-item__dot { background: var(--c-err); }
+.vl-item[data-status="pending"] .vl-item__dot { background: var(--c-text-3); }
+
+@keyframes vl-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+
+.vl-item__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.vl-item__title {
+  color: var(--c-text);
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vl-item__url {
+  color: var(--c-text-3);
+  font-family: var(--ff-mono);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vl-item__err { color: var(--c-err); font-size: 12px; line-height: 1.5; }
+
+/* 单条目的合并进度条：整批进度条看不出"卡在哪一条"，逐条条能 */
+.vl-item__prog {
+  height: 3px;
+  margin-top: 2px;
+  border-radius: 2px;
+  background: var(--c-bg-input);
+  overflow: hidden;
+}
+.vl-item__prog > i {
+  display: block;
+  height: 100%;
+  background: var(--c-warn);
+  transition: width .4s ease;
+}
+.vl-item__meta {
+  flex: none;
+  color: var(--c-text-2);
+  font-size: 12px;
+  font-family: var(--ff-mono);
+  padding-top: 1px;
+}
+
+/* 历史批次 */
+.vl-hist { border-top: 1px solid var(--c-line); padding-top: 12px; }
+.vl-hist__sum { color: var(--c-text-2); font-size: 13px; cursor: pointer; user-select: none; }
+.vl-hist__sum:hover { color: var(--c-text); }
+.vl-hist__list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.vl-hist__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 11px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-sm);
+  background: var(--c-bg-soft);
+  font-size: 12.5px;
+}
+.vl-hist__label { flex: 1; min-width: 0; color: var(--c-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vl-hist__meta { color: var(--c-text-3); font-family: var(--ff-mono); font-size: 11.5px; }
+
+/* 定时计划列表 */
+.vl-scheds { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+
+.vl-sched {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-md);
+  background: var(--c-bg-soft);
+}
+.vl-sched[data-enabled="0"] { opacity: .55; }
+/* 正在执行：左侧加一条强调色竖线，与"已暂停"的淡化形成对比 */
+.vl-sched[data-running="1"] { border-color: var(--c-accent); }
+.vl-sched[data-running="1"] .vl-sched__when { color: var(--c-warn); }
+.vl-sched__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.vl-sched__label { color: var(--c-text); font-size: 14px; font-weight: 600; }
+.vl-sched__when { color: var(--c-accent); font-size: 12.5px; font-family: var(--ff-mono); }
+.vl-sched__urls,
+.vl-sched__last {
+  color: var(--c-text-3);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vl-sched__acts { flex: none; display: flex; gap: 6px; }
+
+@media (max-width: 880px) {
+  .vl-tabs { order: 4; margin-left: 0; width: 100%; }
+  .vl-tab { flex: 1; text-align: center; }
+  .vl-sched { flex-direction: column; align-items: stretch; }
+  .vl-sched__acts { justify-content: flex-end; }
+  .vl-panel__count { margin-left: 0; }
+}
+
+/* 打印：只留标题与直链，播放器与装饰不输出 */
+@media print {
+  .vl__top, .vl__foot, .vl-player, .vl-empty, .vl-toast { display: none !important; }
+  body { background: #fff; color: #000; }
+  .vl-link__url { white-space: normal; word-break: break-all; color: #000; }
+}

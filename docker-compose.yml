@@ -1,0 +1,115 @@
+# =============================================================================
+#  Video Lens —— 飞牛 OS (fnOS) / 通用 Docker Compose 部署
+#  ---------------------------------------------------------------------------
+#  用法（在飞牛的「Docker → Compose」里粘贴本文件，或 ssh 进 NAS 执行）：
+#
+#      docker compose up -d --build        # 首次：构建并启动
+#      docker compose logs -f              # 看日志
+#      docker compose pull && docker compose up -d   # 升级
+#
+#  飞牛上要注意的三件事：
+#    1. **端口映射**：默认把 NAS 的 8300 映射给容器。若被占用（飞牛自身服务多），
+#       改左边那个数字即可，例如 "18300:8300"。
+#    2. **目录映射**：`/vol1/1000/video-lens` 是飞牛默认存储空间的常见路径。
+#       请在「文件管理」里确认你的实际路径（可能是 /vol1/1000/... 或 /vol2/...），
+#       或直接改成飞牛界面里能看到的绝对路径。
+#    3. **VX_SECRET 必须改**：不设则每次重启随机生成，所有播放/下载链接立即失效。
+#       用 `openssl rand -hex 32` 生成一个填进去。
+# =============================================================================
+
+services:
+  video-lens:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # pip 索引源。默认走清华镜像 —— 国内直连 PyPI 下载 yt-dlp（几十 MB）
+        # 经常超时，表现为构建失败在 pip install 那一步（ReadTimeoutError）。
+        # 想用官方源就换成 https://pypi.org/simple
+        PIP_INDEX_URL: "https://pypi.tuna.tsinghua.edu.cn/simple"
+    # 想用现成镜像时（自行 push 到仓库后）注释掉 build、启用 image
+    # image: your-registry/video-lens:latest
+    container_name: video-lens
+    restart: unless-stopped
+
+    # ---------------------------------------------------------------------
+    #  运行身份：root（默认）还是非 root
+    # ---------------------------------------------------------------------
+    #  默认用 root —— 在 NAS 上这是**务实**的选择：彻底绕开「宿主目录属主
+    #  与容器 uid 不一致」这一整类问题（Windows 拷过来的文件属主常是 123，
+    #  而容器内是 1000，写 /data 就会 Permission denied）。
+    #
+    #  代价：若容器被攻破（例如 yt-dlp 解析恶意站点时触发漏洞），攻击者拿到的是
+    #  **NAS 的 root**（不只是容器内），而你映射的目录里有全部数据。
+    #  对「局域网自用 + 不暴露公网 + 只解析自己粘的链接」这个场景，风险可控。
+    #
+    #  如果你更看重隔离（例如多人共用 NAS），把下面两行取消注释即可切回非 root，
+    #  然后**必须**保证宿主数据目录属主是 1000:1000：
+    #      sudo chown -R 1000:1000 /vol1/1000/video-lens-data
+    #  可先用 scripts/prepare-data-dir.sh 一把做完（含 uid 1000 写入实测）。
+    #
+    # user: "1000:1000"
+
+    # 即使是 root，也去掉用不到的内核能力 —— 容器不需要改宿主网络/挂载/内核参数。
+    # 这样即便被攻破，能造成的内核级破坏也小得多。
+    security_opt:
+      - no-new-privileges:true
+
+    ports:
+      # 左边是 NAS 上的端口，右边是容器内端口（别改右边的）
+      - "8300:8300"
+
+    volumes:
+      # 唯一需要持久化的目录：定时计划 state.json + 合并/打包产物。
+      #
+      # 为什么仍建议「数据目录」与「项目目录」分开：
+      #   让容器同时持有源码与运行时数据没有必要；而且数据目录单独一个位置，
+      #   备份/清理时很清楚该动哪个（合并产物可能几十 GB）。
+      #
+      # 用 root 运行时这个目录**不需要 chown**，Docker 自动建也行。
+      - /vol1/1000/video-lens-data:/data
+
+    environment:
+      # ---- 必改 ----
+      # 令牌签名密钥：固定它，重启后旧的播放/下载链接才不会集体失效
+      # 生成：openssl rand -hex 32
+      VX_SECRET: "请替换成你自己的32字节随机十六进制串"
+
+      # ---- 常用可调项（都有合理默认，按需打开）----
+      # 每 IP 每分钟提取次数；家庭自用 30 够，多人共用可调大
+      VX_RATE_LIMIT_RPM: "60"
+      # 同时进行的 HLS 合并数：NAS 的 CPU/IO 通常较弱，建议 1~2
+      VX_REMUX_CONCURRENCY: "1"
+      # 单次合并最长秒数；NAS 下载慢的话调大（如 1800）
+      VX_REMUX_TIMEOUT: "1800"
+      # 单批最多链接数
+      VX_BATCH_MAX_URLS: "20"
+      # 是否允许抓取内网地址（默认禁止，防 SSRF）。
+      # 如果你想让它去抓 NAS 上另一个媒体服务的 m3u8，把它设为 "false"，
+      # 但**仅限纯内网使用**时才这么做。
+      VX_BLOCK_PRIVATE_NET: "true"
+      # 需要登录的清晰度（B站大会员等）：把 cookies.txt 放进挂载目录后打开
+      # VX_COOKIES_FILE: "/data/cookies.txt"
+      # 风控站点 TLS 指纹（需要镜像里额外装 curl_cffi）
+      # VX_IMPERSONATE: "chrome"
+      TZ: Asia/Shanghai
+
+    # NAS 上一般不需要额外权限；保留注释以便按需开启
+    # security_opt:
+    #   - no-new-privileges:true
+
+    healthcheck:
+      # 与镜像里的 HEALTHCHECK 同一脚本；在这里重复写一遍是为了让
+      # `docker compose ps` 也能直接看到健康状态（有些面板只认 compose 里的定义）
+      test: ["CMD", "python", "/app/docker/healthcheck.py"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+    logging:
+      # 长期挂机的 NAS 上，别让日志把磁盘吃满
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
